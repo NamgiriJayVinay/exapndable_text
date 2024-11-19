@@ -1,81 +1,16 @@
-// circular_preview_background.xml (create in res/drawable)
+// AndroidManifest.xml (add storage permission)
 <?xml version="1.0" encoding="utf-8"?>
-<shape xmlns:android="http://schemas.android.com/apk/res/android"
-    android:shape="oval">
-    <solid android:color="@android:color/black" />
-</shape>
-
-// activity_main.xml
-<?xml version="1.0" encoding="utf-8"?>
-<androidx.constraintlayout.widget.ConstraintLayout 
-    xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
-    android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:background="@android:color/white">
-
-    <androidx.cardview.widget.CardView
-        android:id="@+id/preview_container"
-        android:layout_width="300dp"
-        android:layout_height="300dp"
-        app:cardCornerRadius="150dp"
-        app:cardElevation="8dp"
-        app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintLeft_toLeftOf="parent"
-        app:layout_constraintRight_toRightOf="parent"
-        app:layout_constraintTop_toTopOf="parent">
-
-        <androidx.camera.view.PreviewView
-            android:id="@+id/preview_view"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent" />
-
-        <com.example.facedetectionapp.FaceBoxOverlay
-            android:id="@+id/face_box_overlay"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent" />
-
-    </androidx.cardview.widget.CardView>
-
-</androidx.constraintlayout.widget.ConstraintLayout>
-
-// CircularPreviewView.java
-package com.example.facedetectionapp;
-
-import android.content.Context;
-import android.graphics.Canvas;
-import android.graphics.Path;
-import android.util.AttributeSet;
-import androidx.camera.view.PreviewView;
-
-public class CircularPreviewView extends PreviewView {
-    private Path clipPath;
-
-    public CircularPreviewView(Context context) {
-        super(context);
-        init();
-    }
-
-    public CircularPreviewView(Context context, AttributeSet attrs) {
-        super(context, attrs);
-        init();
-    }
-
-    private void init() {
-        clipPath = new Path();
-    }
-
-    @Override
-    protected void onDraw(Canvas canvas) {
-        clipPath.reset();
-        clipPath.addCircle(getWidth() / 2f, getHeight() / 2f,
-                Math.min(getWidth() / 2f, getHeight() / 2f),
-                Path.Direction.CW);
-        
-        canvas.clipPath(clipPath);
-        super.onDraw(canvas);
-    }
-}
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" 
+                     android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" 
+                     android:maxSdkVersion="32" />
+    <!-- For Android 13 and above -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    
+    <!-- Rest of your manifest -->
+</manifest>
 
 // FaceBoxOverlay.java
 package com.example.facedetectionapp;
@@ -89,9 +24,7 @@ import android.graphics.Rect;
 import android.graphics.RectF;
 import android.util.AttributeSet;
 import android.view.View;
-
 import com.google.mlkit.vision.face.Face;
-
 import java.util.ArrayList;
 import java.util.List;
 
@@ -103,6 +36,13 @@ public class FaceBoxOverlay extends View {
     private int previewWidth = 640;
     private int previewHeight = 480;
     private Path clipPath;
+    private FaceDetectionListener listener;
+    private boolean isGoodFaceDetection = false;
+
+    public interface FaceDetectionListener {
+        void onGoodFaceDetected(RectF faceBounds);
+        void onFaceLost();
+    }
 
     public FaceBoxOverlay(Context context, AttributeSet attrs) {
         super(context, attrs);
@@ -115,72 +55,68 @@ public class FaceBoxOverlay extends View {
         clipPath = new Path();
     }
 
+    public void setFaceDetectionListener(FaceDetectionListener listener) {
+        this.listener = listener;
+    }
+
     public void setFaces(List<Face> faces) {
         this.faces = faces;
+        checkFaceQuality();
         postInvalidate();
     }
 
-    public void setPreviewSize(int width, int height) {
-        previewWidth = width;
-        previewHeight = height;
-        calculateScaleFactor();
-    }
-
-    private void calculateScaleFactor() {
-        scaleX = getWidth() / (float) previewWidth;
-        scaleY = getHeight() / (float) previewHeight;
-    }
-
-    @Override
-    protected void onDraw(Canvas canvas) {
-        super.onDraw(canvas);
-
-        // Create circular clip path
-        clipPath.reset();
-        clipPath.addCircle(getWidth() / 2f, getHeight() / 2f,
-                Math.min(getWidth() / 2f, getHeight() / 2f),
-                Path.Direction.CW);
-        canvas.clipPath(clipPath);
-
-        for (Face face : faces) {
-            Rect bounds = face.getBoundingBox();
+    private void checkFaceQuality() {
+        if (faces.size() == 1) {
+            Face face = faces.get(0);
             
-            // Convert coordinates to view space
-            float left = translateX(bounds.left);
-            float top = translateY(bounds.top);
-            float right = translateX(bounds.right);
-            float bottom = translateY(bounds.bottom);
-
-            // Draw face bounding box
-            RectF adjustedRect = new RectF(left, top, right, bottom);
-            canvas.drawRect(adjustedRect, boxPaint);
+            // Get face bounds
+            Rect bounds = face.getBoundingBox();
+            float faceWidth = bounds.width() * scaleX;
+            float faceHeight = bounds.height() * scaleY;
+            
+            // Check if face is centered and of good size
+            boolean isFaceCentered = Math.abs(bounds.centerX() - previewWidth/2f) < previewWidth/6f;
+            boolean isGoodSize = faceWidth > getWidth()/4f && faceHeight > getHeight()/4f;
+            
+            if (isFaceCentered && isGoodSize) {
+                isGoodFaceDetection = true;
+                if (listener != null) {
+                    RectF faceBounds = new RectF(
+                        translateX(bounds.left),
+                        translateY(bounds.top),
+                        translateX(bounds.right),
+                        translateY(bounds.bottom)
+                    );
+                    listener.onGoodFaceDetected(faceBounds);
+                }
+                return;
+            }
+        }
+        
+        isGoodFaceDetection = false;
+        if (listener != null) {
+            listener.onFaceLost();
         }
     }
 
-    private float translateX(float x) {
-        // Mirror coordinate for front camera
-        float scaledX = x * scaleX;
-        return getWidth() - scaledX;
-    }
-
-    private float translateY(float y) {
-        return y * scaleY;
-    }
-
-    @Override
-    protected void onLayout(boolean changed, int left, int top, int right, int bottom) {
-        super.onLayout(changed, left, top, right, bottom);
-        calculateScaleFactor();
-    }
+    // ... (rest of the FaceBoxOverlay methods remain the same)
 }
 
 // MainActivity.java
 package com.example.facedetectionapp;
 
 import android.Manifest;
+import android.content.ContentValues;
 import android.content.pm.PackageManager;
+import android.graphics.Bitmap;
+import android.graphics.Matrix;
+import android.graphics.RectF;
+import android.media.MediaScannerConnection;
+import android.os.Build;
 import android.os.Bundle;
-import android.util.Size;
+import android.os.Environment;
+import android.provider.MediaStore;
+import android.widget.Toast;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.camera.core.*;
@@ -188,27 +124,36 @@ import androidx.camera.lifecycle.ProcessCameraProvider;
 import androidx.camera.view.PreviewView;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
-import androidx.lifecycle.LifecycleOwner;
 
-import com.google.common.util.concurrent.ListenableFuture;
 import com.google.mlkit.vision.common.InputImage;
 import com.google.mlkit.vision.face.Face;
 import com.google.mlkit.vision.face.FaceDetection;
 import com.google.mlkit.vision.face.FaceDetector;
 import com.google.mlkit.vision.face.FaceDetectorOptions;
 
-import java.util.concurrent.ExecutionException;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicInteger;
 
-public class MainActivity extends AppCompatActivity {
-    private static final int PERMISSION_REQUEST_CAMERA = 1001;
+public class MainActivity extends AppCompatActivity implements FaceBoxOverlay.FaceDetectionListener {
+    private static final int PERMISSION_REQUEST_CODE = 1001;
+    private static final int MAX_CAPTURES = 6;
+    
     private PreviewView previewView;
     private FaceBoxOverlay faceBoxOverlay;
     private ExecutorService cameraExecutor;
     private FaceDetector faceDetector;
-    private static final Size PREVIEW_SIZE = new Size(640, 480);
-
+    private ImageCapture imageCapture;
+    private AtomicInteger captureCount = new AtomicInteger(0);
+    private long lastCaptureTime = 0;
+    private static final long CAPTURE_DELAY_MS = 1000; // 1 second delay between captures
+    
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -216,20 +161,10 @@ public class MainActivity extends AppCompatActivity {
 
         previewView = findViewById(R.id.preview_view);
         faceBoxOverlay = findViewById(R.id.face_box_overlay);
+        faceBoxOverlay.setFaceDetectionListener(this);
+
+        requestPermissions();
         
-        // Set the preview size for correct scaling
-        faceBoxOverlay.setPreviewSize(PREVIEW_SIZE.getWidth(), PREVIEW_SIZE.getHeight());
-
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
-                != PackageManager.PERMISSION_GRANTED) {
-            ActivityCompat.requestPermissions(this,
-                    new String[]{Manifest.permission.CAMERA},
-                    PERMISSION_REQUEST_CAMERA);
-        } else {
-            startCamera();
-        }
-
-        // Initialize face detector with high accuracy
         FaceDetectorOptions options = new FaceDetectorOptions.Builder()
                 .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_ACCURATE)
                 .setLandmarkMode(FaceDetectorOptions.LANDMARK_MODE_ALL)
@@ -240,68 +175,167 @@ public class MainActivity extends AppCompatActivity {
         cameraExecutor = Executors.newSingleThreadExecutor();
     }
 
-    private void startCamera() {
-        ListenableFuture<ProcessCameraProvider> cameraProviderFuture = 
-            ProcessCameraProvider.getInstance(this);
+    private void requestPermissions() {
+        String[] permissions;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            permissions = new String[]{
+                Manifest.permission.CAMERA,
+                Manifest.permission.READ_MEDIA_IMAGES
+            };
+        } else {
+            permissions = new String[]{
+                Manifest.permission.CAMERA,
+                Manifest.permission.WRITE_EXTERNAL_STORAGE,
+                Manifest.permission.READ_EXTERNAL_STORAGE
+            };
+        }
 
-        cameraProviderFuture.addListener(() -> {
+        if (!hasPermissions(permissions)) {
+            ActivityCompat.requestPermissions(this, permissions, PERMISSION_REQUEST_CODE);
+        } else {
+            startCamera();
+        }
+    }
+
+    private boolean hasPermissions(String[] permissions) {
+        for (String permission : permissions) {
+            if (ContextCompat.checkSelfPermission(this, permission) 
+                != PackageManager.PERMISSION_GRANTED) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    @Override
+    public void onGoodFaceDetected(RectF faceBounds) {
+        long currentTime = System.currentTimeMillis();
+        if (currentTime - lastCaptureTime >= CAPTURE_DELAY_MS && 
+            captureCount.get() < MAX_CAPTURES) {
+            captureFace(faceBounds);
+            lastCaptureTime = currentTime;
+        }
+    }
+
+    @Override
+    public void onFaceLost() {
+        // Face is no longer detected or not in good position
+    }
+
+    private void captureFace(RectF faceBounds) {
+        if (imageCapture == null) return;
+
+        String timestamp = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault())
+                .format(new Date());
+        String filename = "FACE_" + timestamp + ".jpg";
+
+        ContentValues contentValues = new ContentValues();
+        contentValues.put(MediaStore.MediaColumns.DISPLAY_NAME, filename);
+        contentValues.put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg");
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            contentValues.put(MediaStore.MediaColumns.RELATIVE_PATH, 
+                Environment.DIRECTORY_PICTURES + "/FaceCaptures");
+        }
+
+        ImageCapture.OutputFileOptions outputFileOptions = 
+            new ImageCapture.OutputFileOptions.Builder(
+                getContentResolver(),
+                MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                contentValues
+            ).build();
+
+        imageCapture.takePicture(outputFileOptions, cameraExecutor,
+            new ImageCapture.OnImageSavedCallback() {
+                @Override
+                public void onImageSaved(@NonNull ImageCapture.OutputFileResults output) {
+                    int count = captureCount.incrementAndGet();
+                    runOnUiThread(() -> {
+                        Toast.makeText(MainActivity.this, 
+                            "Captured image " + count + " of " + MAX_CAPTURES, 
+                            Toast.LENGTH_SHORT).show();
+                        
+                        if (count >= MAX_CAPTURES) {
+                            Toast.makeText(MainActivity.this, 
+                                "All captures completed!", 
+                                Toast.LENGTH_LONG).show();
+                        }
+                    });
+                }
+
+                @Override
+                public void onError(@NonNull ImageCaptureException exception) {
+                    runOnUiThread(() -> Toast.makeText(MainActivity.this, 
+                        "Error capturing image: " + exception.getMessage(), 
+                        Toast.LENGTH_SHORT).show());
+                }
+            });
+    }
+
+    private void startCamera() {
+        ProcessCameraProvider.getInstance(this).addListener(() -> {
             try {
-                ProcessCameraProvider cameraProvider = cameraProviderFuture.get();
-                bindPreview(cameraProvider);
-            } catch (ExecutionException | InterruptedException e) {
+                ProcessCameraProvider cameraProvider = ProcessCameraProvider.getInstance(this).get();
+                bindCameraUseCases(cameraProvider);
+            } catch (Exception e) {
                 e.printStackTrace();
             }
         }, ContextCompat.getMainExecutor(this));
     }
 
-    private void bindPreview(ProcessCameraProvider cameraProvider) {
-        Preview preview = new Preview.Builder()
-                .setTargetResolution(PREVIEW_SIZE)
-                .build();
-
-        CameraSelector cameraSelector = new CameraSelector.Builder()
-                .requireLensFacing(CameraSelector.LENS_FACING_FRONT)
-                .build();
+    private void bindCameraUseCases(ProcessCameraProvider cameraProvider) {
+        Preview preview = new Preview.Builder().build();
+        
+        imageCapture = new ImageCapture.Builder()
+            .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+            .build();
 
         ImageAnalysis imageAnalysis = new ImageAnalysis.Builder()
-                .setTargetResolution(PREVIEW_SIZE)
-                .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                .build();
+            .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+            .build();
 
         imageAnalysis.setAnalyzer(cameraExecutor, imageProxy -> {
-            @SuppressWarnings("DefaultLocale")
             InputImage image = InputImage.fromMediaImage(
-                    imageProxy.getImage(),
-                    imageProxy.getImageInfo().getRotationDegrees()
+                imageProxy.getImage(),
+                imageProxy.getImageInfo().getRotationDegrees()
             );
 
             faceDetector.process(image)
-                    .addOnSuccessListener(faces -> {
-                        faceBoxOverlay.setFaces(faces);
-                    })
-                    .addOnCompleteListener(task -> imageProxy.close());
+                .addOnSuccessListener(faces -> faceBoxOverlay.setFaces(faces))
+                .addOnCompleteListener(task -> imageProxy.close());
         });
 
-        preview.setSurfaceProvider(previewView.getSurfaceProvider());
-        
-        // Unbind previous use cases before rebinding
-        cameraProvider.unbindAll();
-        
-        Camera camera = cameraProvider.bindToLifecycle(
-            (LifecycleOwner) this, 
-            cameraSelector, 
-            preview, 
-            imageAnalysis
-        );
+        CameraSelector cameraSelector = new CameraSelector.Builder()
+            .requireLensFacing(CameraSelector.LENS_FACING_FRONT)
+            .build();
+
+        try {
+            cameraProvider.unbindAll();
+            cameraProvider.bindToLifecycle(
+                this, 
+                cameraSelector,
+                preview, 
+                imageCapture, 
+                imageAnalysis
+            );
+            
+            preview.setSurfaceProvider(previewView.getSurfaceProvider());
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
     }
 
     @Override
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions,
                                          @NonNull int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        if (requestCode == PERMISSION_REQUEST_CAMERA) {
-            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+        if (requestCode == PERMISSION_REQUEST_CODE) {
+            if (grantResults.length > 0 && 
+                grantResults[0] == PackageManager.PERMISSION_GRANTED) {
                 startCamera();
+            } else {
+                Toast.makeText(this, "Permissions required to use the app", 
+                    Toast.LENGTH_LONG).show();
+                finish();
             }
         }
     }
