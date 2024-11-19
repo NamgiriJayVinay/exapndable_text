@@ -1,3 +1,25 @@
+
+2024-11-19 17:14:39.976 12755-13104 YuvToJpegEncoder        com.android.privacyview              D  onFlyCompress
+2024-11-19 17:14:40.011 12755-13104 System.err              com.android.privacyview              W  java.lang.IllegalArgumentException: Image dimension, ByteBuffer size and format don't match. Please check if the ByteBuffer is in the decalred format.
+2024-11-19 17:14:40.011 12755-13104 System.err              com.android.privacyview              W  	at com.google.android.gms.common.internal.Preconditions.checkArgument(com.google.android.gms:play-services-basement@@18.3.0:2)
+2024-11-19 17:14:40.011 12755-13104 System.err              com.android.privacyview              W  	at com.google.mlkit.vision.common.InputImage.<init>(com.google.mlkit:vision-common@@17.3.0:10)
+2024-11-19 17:14:40.011 12755-13104 System.err              com.android.privacyview              W  	at com.google.mlkit.vision.common.InputImage.fromByteArray(com.google.mlkit:vision-common@@17.3.0:2)
+2024-11-19 17:14:40.011 12755-13104 System.err              com.android.privacyview              W  	at com.android.privacyview.LiveFace.lambda$bindCameraUseCases$4$com-android-privacyview-LiveFace(LiveFace.java:351)
+2024-11-19 17:14:40.011 12755-13104 System.err              com.android.privacyview              W  	at com.android.privacyview.LiveFace$$ExternalSyntheticLambda0.analyze(Unknown Source:2)
+2024-11-19 17:14:40.011 12755-13104 System.err              com.android.privacyview              W  	at androidx.camera.core.ImageAnalysis.lambda$setAnalyzer$3(ImageAnalysis.java:573)
+2024-11-19 17:14:40.011 12755-13104 System.err              com.android.privacyview              W  	at androidx.camera.core.ImageAnalysis$$ExternalSyntheticLambda5.analyze(Unknown Source:2)
+2024-11-19 17:14:40.011 12755-13104 System.err              com.android.privacyview              W  	at androidx.camera.core.ImageAnalysisAbstractAnalyzer.lambda$analyzeImage$0$androidx-camera-core-ImageAnalysisAbstractAnalyzer(ImageAnalysisAbstractAnalyzer.java:284)
+2024-11-19 17:14:40.011 12755-13104 System.err              com.android.privacyview              W  	at androidx.camera.core.ImageAnalysisAbstractAnalyzer$$ExternalSyntheticLambda1.run(Unknown Source:14)
+2024-11-19 17:14:40.011 12755-13104 System.err              com.android.privacyview              W  	at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1145)
+2024-11-19 17:14:40.011 12755-13104 System.err              com.android.privacyview              W  	at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:644)
+2024-11-19 17:14:40.011 12755-13104 System.err              com.android.privacyview              W  	at java.lang.Thread.run(Thread.java:1012)
+2024-11-19 17:14:40.012 12755-13104 YuvToJpegEncoder        com.android.privacyview              D  onFlyCompress
+2024-11-19 17:14:40.044 12755-13104 System.err              com.android.privacyview              W  java.lang.IllegalArgumentException: Image dimension, ByteBuffer size and format don't match. Please check if the ByteBuffer is in the decalred format.
+2024-11-19 17:14:40.044 12755-13104 System.err              com.android.privacyview              W  	at com.google.android.gms.common.internal.Preconditions.checkArgument(com.google.android.gms:play-services-basement@@18.3.0:2)
+2024-11-19 17:14:40.044 12755-13104 System.err              com.android.privacyview              W  	at com.google.mlkit.vision.common.InputImage.<init>(com.google.mlkit:vision-common@@17.3.0:10)
+2024-11-19 17:14:40.044 12755-13104 System.err              com.android.privacyview              W  	at com.google.mlkit.vision.common.InputImage.fromByteArray(com.google.mlkit:vision-common@@17.3.0:2)
+
+
 // FaceBoxOverlay.java
 package com.example.facedetectionapp;
 
