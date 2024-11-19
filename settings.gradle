@@ -135,3 +135,295 @@ private Bitmap imageToBitmap(Image image) {
     byte[] imageBytes = out.toByteArray();
     return BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.length);
 }
+
+
+
+
+ I'll modify the code to implement this workflow. Here's a comprehensive approach:
+
+
+
+1. First, update the `activity_main.xml`:
+
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical">
+
+    <!-- Camera Preview Section -->
+    <FrameLayout
+        android:id="@+id/cameraPreviewContainer"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1">
+
+        <androidx.camera.view.PreviewView
+            android:id="@+id/previewView"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent" />
+
+        <com.example.facedetectionapp.FaceBoxOverlay
+            android:id="@+id/faceBoxOverlay"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent" />
+    </FrameLayout>
+
+    <!-- Name Registration Section (Initially GONE) -->
+    <LinearLayout
+        android:id="@+id/nameRegistrationLayout"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/capturedFacesCountText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Faces Captured: 0"
+            android:textAlignment="center"
+            android:textSize="18sp"
+            android:layout_marginBottom="16dp"/>
+
+        <EditText
+            android:id="@+id/nameEditText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Enter Name"
+            android:inputType="textPersonName"/>
+
+        <Button
+            android:id="@+id/registerButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Register"/>
+    </LinearLayout>
+</LinearLayout>
+```
+
+2. Modify `MainActivity.java`:
+
+```java
+public class MainActivity extends AppCompatActivity 
+        implements FaceBoxOverlay.FaceDetectionListener {
+
+    // Existing variables...
+    private FrameLayout cameraPreviewContainer;
+    private LinearLayout nameRegistrationLayout;
+    private EditText nameEditText;
+    private Button registerButton;
+    private TextView capturedFacesCountText;
+
+    private List<String> capturedFacePaths = new ArrayList<>();
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        setContentView(R.layout.activity_main);
+
+        // Initialize new views
+        cameraPreviewContainer = findViewById(R.id.cameraPreviewContainer);
+        nameRegistrationLayout = findViewById(R.id.nameRegistrationLayout);
+        nameEditText = findViewById(R.id.nameEditText);
+        registerButton = findViewById(R.id.registerButton);
+        capturedFacesCountText = findViewById(R.id.capturedFacesCountText);
+
+        // Existing setup...
+        setupCameraAndFaceDetection();
+
+        registerButton.setOnClickListener(v -> registerCapturedFaces());
+    }
+
+    private void registerCapturedFaces() {
+        String name = nameEditText.getText().toString().trim();
+        if (name.isEmpty()) {
+            Toast.makeText(this, "Please enter a name", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        // Create folder in Documents
+        File documentsDir = Environment.getExternalStoragePublicDirectory(
+            Environment.DIRECTORY_DOCUMENTS);
+        File namedFolder = new File(documentsDir, name + "_Faces");
+        
+        if (!namedFolder.exists()) {
+            namedFolder.mkdirs();
+        }
+
+        // Move captured faces to the new folder
+        for (String sourcePath : capturedFacePaths) {
+            File sourceFile = new File(sourcePath);
+            File destFile = new File(namedFolder, sourceFile.getName());
+            
+            try {
+                FileInputStream in = new FileInputStream(sourceFile);
+                FileOutputStream out = new FileOutputStream(destFile);
+                
+                byte[] buffer = new byte[1024];
+                int read;
+                while ((read = in.read(buffer)) != -1) {
+                    out.write(buffer, 0, read);
+                }
+                
+                in.close();
+                out.close();
+                
+                // Optional: Delete original file
+                sourceFile.delete();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+
+        // Clear the list and reset UI
+        capturedFacePaths.clear();
+        Toast.makeText(this, "Faces registered for " + name, Toast.LENGTH_LONG).show();
+        
+        // Reset for potential new capture
+        nameEditText.setText("");
+        showCameraPreview();
+    }
+
+    @Override
+    public void onGoodFaceDetected(Face face, Rect boundingBox) {
+        long currentTime = System.currentTimeMillis();
+        if (currentTime - lastCaptureTime >= CAPTURE_DELAY_MS && 
+            captureCount.get() < MAX_CAPTURES && lastProcessedBitmap != null) {
+            synchronized (bitmapLock) {
+                if (lastProcessedBitmap != null) {
+                    String savedImagePath = cropAndSaveFace(lastProcessedBitmap, face, boundingBox);
+                    if (savedImagePath != null) {
+                        capturedFacePaths.add(savedImagePath);
+                    }
+                }
+            }
+            lastCaptureTime = currentTime;
+        }
+    }
+
+    private String cropAndSaveFace(Bitmap originalBitmap, Face face, Rect boundingBox) {
+        try {
+            // Similar to previous implementation, but return the file path
+            // Add padding to the bounding box
+            int padding = Math.min(boundingBox.width(), boundingBox.height()) / 8;
+            Rect paddedBox = new Rect(
+                boundingBox.left - padding,
+                boundingBox.top - padding,
+                boundingBox.right + padding,
+                boundingBox.bottom + padding
+            );
+
+            // Ensure the padded box is within image bounds
+            paddedBox.left = Math.max(0, paddedBox.left);
+            paddedBox.top = Math.max(0, paddedBox.top);
+            paddedBox.right = Math.min(originalBitmap.getWidth(), paddedBox.right);
+            paddedBox.bottom = Math.min(originalBitmap.getHeight(), paddedBox.bottom);
+
+            // Create the cropped bitmap
+            Bitmap croppedBitmap = Bitmap.createBitmap(
+                originalBitmap,
+                paddedBox.left,
+                paddedBox.top,
+                paddedBox.width(),
+                paddedBox.height()
+            );
+
+            // Save the cropped face and return its path
+            return saveFaceImage(croppedBitmap);
+            
+        } catch (Exception e) {
+            e.printStackTrace();
+            return null;
+        }
+    }
+
+    private String saveFaceImage(Bitmap faceBitmap) {
+        String timestamp = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault())
+                .format(new Date());
+        String filename = "FACE_" + timestamp + ".jpg";
+
+        // Using External Storage for easier file management
+        File picturesDir = Environment.getExternalStoragePublicDirectory(
+            Environment.DIRECTORY_PICTURES);
+        File tempFacesDir = new File(picturesDir, "TempFaces");
+        
+        if (!tempFacesDir.exists()) {
+            tempFacesDir.mkdirs();
+        }
+
+        File imageFile = new File(tempFacesDir, filename);
+
+        try (FileOutputStream out = new FileOutputStream(imageFile)) {
+            faceBitmap.compress(Bitmap.CompressFormat.JPEG, 100, out);
+            
+            int count = captureCount.incrementAndGet();
+            runOnUiThread(() -> {
+                capturedFacesCountText.setText("Faces Captured: " + count);
+                
+                // When max captures reached, switch to name registration
+                if (count >= MAX_CAPTURES) {
+                    showNameRegistration();
+                }
+            });
+
+            return imageFile.getAbsolutePath();
+        } catch (IOException e) {
+            e.printStackTrace();
+            return null;
+        }
+    }
+
+    private void showNameRegistration() {
+        // Hide camera preview
+        cameraPreviewContainer.setVisibility(View.GONE);
+        
+        // Show name registration layout
+        nameRegistrationLayout.setVisibility(View.VISIBLE);
+    }
+
+    private void showCameraPreview() {
+        // Hide name registration layout
+        nameRegistrationLayout.setVisibility(View.GONE);
+        
+        // Show camera preview
+        cameraPreviewContainer.setVisibility(View.VISIBLE);
+        
+        // Reset capture count
+        captureCount.set(0);
+        capturedFacesCountText.setText("Faces Captured: 0");
+    }
+}
+```
+
+### Key Changes and Additions
+
+1. **UI Modifications**
+   - Added a new section in layout for name registration
+   - Added visibility toggling between camera preview and name registration
+
+2. **Capture Workflow**
+   - Collect paths of captured faces in `capturedFacePaths`
+   - When max captures reached, switch to name registration view
+   - Added a counter text to show number of faces captured
+
+3. **Registration Process**
+   - Create a folder in Documents directory with entered name
+   - Move captured face images to the new folder
+   - Option to delete original temporary files
+
+4. **Additional Helper Methods**
+   - `showNameRegistration()`: Switches view when captures complete
+   - `showCameraPreview()`: Resets for potential new capture session
+   - `registerCapturedFaces()`: Handles folder creation and file moving
+
+### Important Considerations
+
+1. Ensure you have `WRITE_EXTERNAL_STORAGE` permission
+2. For Android 10+ (Q), you might need to use `getExternalFilesDir()` or MediaStore for file operations
+3. Add appropriate error handling for file operations
+4. Consider adding validation for folder/file names
+
+Would you like me to elaborate on any part of the implementation or discuss any specific requirements?
