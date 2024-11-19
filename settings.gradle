@@ -21,3 +21,117 @@ dependencyResolutionManagement {
 
 rootProject.name = "card_text"
 include ':app'
+
+
+
+000
+private void bindCameraUseCases(ProcessCameraProvider cameraProvider) {
+    Preview preview = new Preview.Builder().build();
+
+    imageCapture = new ImageCapture.Builder()
+        .setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
+        .build();
+
+    ImageAnalysis imageAnalysis = new ImageAnalysis.Builder()
+        .setTargetResolution(new Size(640, 480))
+        .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+        .build();
+
+    imageAnalysis.setAnalyzer(cameraExecutor, imageProxy -> {
+        try {
+            // Get the image format
+            @SuppressWarnings("ConstantConditions")
+            Image image = imageProxy.getImage();
+            if (image == null) {
+                imageProxy.close();
+                return;
+            }
+
+            // Convert Image to Bitmap
+            Bitmap bitmap = imageToBitmap(image);
+            
+            // Handle rotation
+            int rotation = imageProxy.getImageInfo().getRotationDegrees();
+            if (rotation != 0) {
+                Matrix matrix = new Matrix();
+                matrix.postRotate(rotation);
+                bitmap = Bitmap.createBitmap(
+                    bitmap,
+                    0,
+                    0,
+                    bitmap.getWidth(),
+                    bitmap.getHeight(),
+                    matrix,
+                    true
+                );
+            }
+
+            synchronized (bitmapLock) {
+                lastProcessedBitmap = bitmap;
+            }
+
+            // Create InputImage from Image object directly
+            InputImage inputImage = InputImage.fromMediaImage(image, rotation);
+
+            faceDetector.process(inputImage)
+                .addOnSuccessListener(faces -> {
+                    faceBoxOverlay.setImageSourceInfo(
+                        bitmap.getWidth(),
+                        bitmap.getHeight(),
+                        CameraSelector.LENS_FACING_FRONT
+                    );
+                    faceBoxOverlay.setFaces(faces);
+                })
+                .addOnCompleteListener(task -> imageProxy.close());
+
+        } catch (Exception e) {
+            imageProxy.close();
+            e.printStackTrace();
+        }
+    });
+
+    CameraSelector cameraSelector = new CameraSelector.Builder()
+        .requireLensFacing(CameraSelector.LENS_FACING_FRONT)
+        .build();
+
+    try {
+        cameraProvider.unbindAll();
+        cameraProvider.bindToLifecycle(
+            this,
+            cameraSelector,
+            preview,
+            imageCapture,
+            imageAnalysis
+        );
+
+        preview.setSurfaceProvider(previewView.getSurfaceProvider());
+    } catch (Exception e) {
+        e.printStackTrace();
+    }
+}
+
+// Add this helper method to convert Image to Bitmap
+private Bitmap imageToBitmap(Image image) {
+    Image.Plane[] planes = image.getPlanes();
+    ByteBuffer yBuffer = planes[0].getBuffer();
+    ByteBuffer uBuffer = planes[1].getBuffer();
+    ByteBuffer vBuffer = planes[2].getBuffer();
+
+    int ySize = yBuffer.remaining();
+    int uSize = uBuffer.remaining();
+    int vSize = vBuffer.remaining();
+
+    byte[] nv21 = new byte[ySize + uSize + vSize];
+
+    // U and V are swapped
+    yBuffer.get(nv21, 0, ySize);
+    vBuffer.get(nv21, ySize, vSize);
+    uBuffer.get(nv21, ySize + vSize, uSize);
+
+    YuvImage yuvImage = new YuvImage(nv21, ImageFormat.NV21, image.getWidth(), image.getHeight(), null);
+    ByteArrayOutputStream out = new ByteArrayOutputStream();
+    yuvImage.compressToJpeg(new Rect(0, 0, yuvImage.getWidth(), yuvImage.getHeight()), 100, out);
+
+    byte[] imageBytes = out.toByteArray();
+    return BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.length);
+}
