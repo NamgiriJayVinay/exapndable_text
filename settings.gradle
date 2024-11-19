@@ -427,3 +427,301 @@ public class MainActivity extends AppCompatActivity
 4. Consider adding validation for folder/file names
 
 Would you like me to elaborate on any part of the implementation or discuss any specific requirements?
+
+
+
+ I'll modify the implementation to include a circular progress bar and progress percentage. Here's a comprehensive approach:
+
+1. First, update the `activity_main.xml`:
+
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical">
+
+    <!-- Camera Preview Section -->
+    <FrameLayout
+        android:id="@+id/cameraPreviewContainer"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1">
+
+        <androidx.camera.view.PreviewView
+            android:id="@+id/previewView"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent" />
+
+        <com.example.facedetectionapp.FaceBoxOverlay
+            android:id="@+id/faceBoxOverlay"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent" />
+    </FrameLayout>
+
+    <!-- Capture Progress Section -->
+    <androidx.cardview.widget.CardView
+        android:id="@+id/captureProgressCardView"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_margin="16dp"
+        app:cardCornerRadius="8dp"
+        app:cardElevation="4dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:padding="12dp"
+            android:gravity="center_vertical">
+
+            <!-- Circular Progress Bar -->
+            <com.mikhaellopez.circularprogressbar.CircularProgressBar
+                android:id="@+id/circularProgressBar"
+                android:layout_width="60dp"
+                android:layout_height="60dp"
+                app:cpb_progress="0"
+                app:cpb_progressMax="100"
+                app:cpb_progressBarColor="@color/purple_500"
+                app:cpb_backgroundProgressBarColor="@color/purple_200"
+                app:cpb_progressBarWidth="10dp"
+                app:cpb_backgroundProgressBarWidth="5dp"/>
+
+            <!-- Progress Text -->
+            <TextView
+                android:id="@+id/progressTextView"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="16dp"
+                android:textSize="18sp"
+                android:textColor="@android:color/black"
+                android:text="0% Faces Captured"/>
+        </LinearLayout>
+    </androidx.cardview.widget.CardView>
+
+    <!-- Name Registration Section -->
+    <LinearLayout
+        android:id="@+id/nameRegistrationLayout"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp"
+        android:visibility="gone">
+
+        <EditText
+            android:id="@+id/nameEditText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Enter Name"
+            android:inputType="textPersonName"/>
+
+        <Button
+            android:id="@+id/registerButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Register"/>
+    </LinearLayout>
+</LinearLayout>
+```
+
+2. Update `build.gradle` (app level) to include dependencies:
+
+```groovy
+dependencies {
+    // Circular Progress Bar
+    implementation 'com.mikhaellopez:circularprogressbar:3.1.0'
+    
+    // CardView
+    implementation 'androidx.cardview:cardview:1.0.0'
+}
+```
+
+3. Modify `MainActivity.java`:
+
+```java
+public class MainActivity extends AppCompatActivity 
+        implements FaceBoxOverlay.FaceDetectionListener {
+
+    // Add these to your existing variable declarations
+    private CardView captureProgressCardView;
+    private CircularProgressBar circularProgressBar;
+    private TextView progressTextView;
+
+    // Maximum number of captures
+    private static final int MAX_CAPTURES = 6;
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        setContentView(R.layout.activity_main);
+
+        // Existing initializations...
+        
+        // New view initializations
+        captureProgressCardView = findViewById(R.id.captureProgressCardView);
+        circularProgressBar = findViewById(R.id.circularProgressBar);
+        progressTextView = findViewById(R.id.progressTextView);
+
+        // Initially hide progress card if needed
+        captureProgressCardView.setVisibility(View.VISIBLE);
+    }
+
+    @Override
+    public void onGoodFaceDetected(Face face, Rect boundingBox) {
+        long currentTime = System.currentTimeMillis();
+        if (currentTime - lastCaptureTime >= CAPTURE_DELAY_MS && 
+            captureCount.get() < MAX_CAPTURES && lastProcessedBitmap != null) {
+            synchronized (bitmapLock) {
+                if (lastProcessedBitmap != null) {
+                    String savedImagePath = cropAndSaveFace(lastProcessedBitmap, face, boundingBox);
+                    if (savedImagePath != null) {
+                        capturedFacePaths.add(savedImagePath);
+                        
+                        // Update progress
+                        updateCaptureProgress(capturedFacePaths.size());
+                    }
+                }
+            }
+            lastCaptureTime = currentTime;
+        }
+    }
+
+    private void updateCaptureProgress(int capturedCount) {
+        // Calculate progress percentage
+        int progressPercentage = (capturedCount * 100) / MAX_CAPTURES;
+        
+        // Update circular progress bar
+        circularProgressBar.setProgress(progressPercentage);
+        
+        // Update progress text
+        progressTextView.setText(String.format("%d%% Faces Captured", progressPercentage));
+        
+        // If all faces captured, prepare for registration
+        if (capturedCount >= MAX_CAPTURES) {
+            showNameRegistration();
+        }
+    }
+
+    private void showNameRegistration() {
+        // Hide camera preview
+        cameraPreviewContainer.setVisibility(View.GONE);
+        
+        // Hide capture progress
+        captureProgressCardView.setVisibility(View.GONE);
+        
+        // Show name registration layout
+        nameRegistrationLayout.setVisibility(View.VISIBLE);
+    }
+
+    private void showCameraPreview() {
+        // Reset progress
+        circularProgressBar.setProgress(0);
+        progressTextView.setText("0% Faces Captured");
+        
+        // Hide name registration layout
+        nameRegistrationLayout.setVisibility(View.GONE);
+        
+        // Show camera preview and progress card
+        cameraPreviewContainer.setVisibility(View.VISIBLE);
+        captureProgressCardView.setVisibility(View.VISIBLE);
+        
+        // Reset capture count and paths
+        captureCount.set(0);
+        capturedFacePaths.clear();
+    }
+
+    private void registerCapturedFaces() {
+        String name = nameEditText.getText().toString().trim();
+        if (name.isEmpty()) {
+            Toast.makeText(this, "Please enter a name", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        // Create folder in Documents
+        File documentsDir = Environment.getExternalStoragePublicDirectory(
+            Environment.DIRECTORY_DOCUMENTS);
+        File namedFolder = new File(documentsDir, name + "_Faces");
+        
+        if (!namedFolder.exists()) {
+            namedFolder.mkdirs();
+        }
+
+        // Move captured faces to the new folder
+        for (String sourcePath : capturedFacePaths) {
+            File sourceFile = new File(sourcePath);
+            File destFile = new File(namedFolder, sourceFile.getName());
+            
+            try {
+                FileInputStream in = new FileInputStream(sourceFile);
+                FileOutputStream out = new FileOutputStream(destFile);
+                
+                byte[] buffer = new byte[1024];
+                int read;
+                while ((read = in.read(buffer)) != -1) {
+                    out.write(buffer, 0, read);
+                }
+                
+                in.close();
+                out.close();
+                
+                // Delete original file
+                sourceFile.delete();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+
+        // Show success message
+        Toast.makeText(this, "Faces registered for " + name, Toast.LENGTH_LONG).show();
+        
+        // Reset UI and prepare for next capture session
+        nameEditText.setText("");
+        showCameraPreview();
+    }
+
+    // Existing methods remain the same...
+}
+```
+
+### Key Enhancements
+
+1. **Circular Progress Indicator**
+   - Uses `CircularProgressBar` library for a modern, animated progress indicator
+   - Shows real-time progress of face captures
+   - Automatically updates as faces are captured
+
+2. **Progress Visualization**
+   - Percentage text showing exact capture progress
+   - Integrated with CardView for a clean, modern look
+   - Automatically triggers name registration when 100% reached
+
+3. **Workflow Improvements**
+   - Seamless transition between camera preview and name registration
+   - Clear visual feedback of capture progress
+   - Simple and intuitive user interface
+
+### Customization Options
+
+You can easily customize the progress bar by modifying these attributes:
+- `app:cpb_progressBarColor`: Color of the progress indicator
+- `app:cpb_backgroundProgressBarColor`: Color of the background progress
+- `app:cpb_progressBarWidth`: Width of the progress bar
+- `app:cpb_backgroundProgressBarWidth`: Width of the background progress bar
+
+### Permissions Reminder
+
+Ensure you have the necessary permissions in your `AndroidManifest.xml`:
+
+```xml
+<uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"/>
+<uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/>
+```
+
+### Potential Further Improvements
+
+1. Add animation when progress reaches 100%
+2. Implement more robust error handling
+3. Add option to retake photos if needed
+
+Would you like me to elaborate on any part of the implementation or discuss any specific requirements?
