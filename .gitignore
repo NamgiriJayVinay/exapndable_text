@@ -13,3 +13,306 @@
 .externalNativeBuild
 .cxx
 local.properties
+
+
+
+
+// MainActivity.java
+package com.example.facerecognitionservice;
+
+import android.content.Intent;
+import android.os.Bundle;
+import android.widget.ToggleButton;
+import androidx.appcompat.app.AppCompatActivity;
+
+public class MainActivity extends AppCompatActivity {
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        setContentView(R.layout.activity_main);
+
+        ToggleButton serviceToggle = findViewById(R.id.serviceToggle);
+        serviceToggle.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            Intent serviceIntent = new Intent(this, FaceRecognitionService.class);
+            if (isChecked) {
+                startForegroundService(serviceIntent);
+            } else {
+                stopService(serviceIntent);
+            }
+        });
+    }
+}
+
+// FaceRecognitionService.java
+package com.example.facerecognitionservice;
+
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.app.Service;
+import android.content.Context;
+import android.content.Intent;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.graphics.Matrix;
+import android.media.Image;
+import android.os.Build;
+import android.os.IBinder;
+import android.util.Log;
+import android.widget.Toast;
+import androidx.annotation.Nullable;
+import androidx.camera.core.CameraSelector;
+import androidx.camera.core.ImageAnalysis;
+import androidx.camera.core.ImageProxy;
+import androidx.camera.core.Preview;
+import androidx.camera.lifecycle.ProcessCameraProvider;
+import androidx.core.app.NotificationCompat;
+import androidx.core.content.ContextCompat;
+import com.google.common.util.concurrent.ListenableFuture;
+import org.tensorflow.lite.Interpreter;
+import java.io.File;
+import java.io.FileInputStream;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+
+public class FaceRecognitionService extends Service {
+    private static final String CHANNEL_ID = "FaceRecognitionServiceChannel";
+    private ExecutorService cameraExecutor;
+    private List<FaceModel> registeredFaces = new ArrayList<>();
+    private Interpreter faceNetModel;
+
+    @Override
+    public void onCreate() {
+        super.onCreate();
+        createNotificationChannel();
+        loadFaceNetModel();
+        loadRegisteredFaces();
+        cameraExecutor = Executors.newSingleThreadExecutor();
+    }
+
+    private void createNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            NotificationChannel serviceChannel = new NotificationChannel(
+                    CHANNEL_ID,
+                    "Face Recognition Service",
+                    NotificationManager.IMPORTANCE_DEFAULT
+            );
+            NotificationManager manager = getSystemService(NotificationManager.class);
+            manager.createNotificationChannel(serviceChannel);
+        }
+    }
+
+    @Override
+    public int onStartCommand(Intent intent, int flags, int startId) {
+        Notification notification = new NotificationCompat.Builder(this, CHANNEL_ID)
+                .setContentTitle("Face Recognition Service")
+                .setContentText("Recognizing faces in background")
+                .setSmallIcon(R.drawable.ic_face_recognition)
+                .build();
+
+        startForeground(1, notification);
+        startFaceRecognition();
+        return START_STICKY;
+    }
+
+    private void loadFaceNetModel() {
+        try {
+            // Load your FaceNet model
+            faceNetModel = new Interpreter(loadModelFile("facenet_model.tflite"));
+        } catch (Exception e) {
+            Log.e("FaceRecognitionService", "Error loading model", e);
+        }
+    }
+
+    private void loadRegisteredFaces() {
+        File documentsDir = getExternalFilesDir(null);
+        if (documentsDir != null) {
+            File[] personFolders = documentsDir.listFiles(File::isDirectory);
+            if (personFolders != null) {
+                for (File personFolder : personFolders) {
+                    File[] faceImages = personFolder.listFiles(
+                            file -> file.getName().toLowerCase().endsWith(".jpg") ||
+                                    file.getName().toLowerCase().endsWith(".png")
+                    );
+                    if (faceImages != null) {
+                        for (File faceImage : faceImages) {
+                            Bitmap faceBitmap = BitmapFactory.decodeFile(faceImage.getAbsolutePath());
+                            registeredFaces.add(new FaceModel(personFolder.getName(), processImageForFaceNet(faceBitmap)));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private void startFaceRecognition() {
+        ListenableFuture<ProcessCameraProvider> cameraProviderFuture = 
+                ProcessCameraProvider.getInstance(this);
+
+        cameraProviderFuture.addListener(() -> {
+            try {
+                ProcessCameraProvider cameraProvider = cameraProviderFuture.get();
+                ImageAnalysis imageAnalysis = new ImageAnalysis.Builder()
+                        .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                        .build();
+
+                imageAnalysis.setAnalyzer(cameraExecutor, new FaceDetectionAnalyzer());
+
+                CameraSelector cameraSelector = CameraSelector.DEFAULT_FRONT_CAMERA;
+                cameraProvider.bindToLifecycle(this, cameraSelector, imageAnalysis);
+            } catch (Exception e) {
+                Log.e("FaceRecognitionService", "Camera setup error", e);
+            }
+        }, ContextCompat.getMainExecutor(this));
+    }
+
+    private class FaceDetectionAnalyzer implements ImageAnalysis.Analyzer {
+        @Override
+        public void analyze(ImageProxy imageProxy) {
+            Bitmap bitmap = convertImageProxyToBitmap(imageProxy);
+            float[] faceEmbedding = processImageForFaceNet(bitmap);
+            
+            String recognizedPerson = recognizePerson(faceEmbedding);
+            if (recognizedPerson != null) {
+                showToast("Recognized: " + recognizedPerson);
+            } else {
+                showToast("Could not identify registered persons");
+            }
+
+            imageProxy.close();
+        }
+    }
+
+    private String recognizePerson(float[] currentFaceEmbedding) {
+        float minDistance = Float.MAX_VALUE;
+        String recognizedPerson = null;
+
+        for (FaceModel registeredFace : registeredFaces) {
+            float distance = calculateEuclideanDistance(currentFaceEmbedding, registeredFace.embedding);
+            if (distance < minDistance && distance < 0.6) {  // Threshold for recognition
+                minDistance = distance;
+                recognizedPerson = registeredFace.personName;
+            }
+        }
+
+        return recognizedPerson;
+    }
+
+    private void showToast(String message) {
+        // Ensure toast is shown on main thread
+        new Handler(Looper.getMainLooper()).post(() -> 
+            Toast.makeText(FaceRecognitionService.this, message, Toast.LENGTH_SHORT).show()
+        );
+    }
+
+    private float calculateEuclideanDistance(float[] embedding1, float[] embedding2) {
+        float sum = 0;
+        for (int i = 0; i < embedding1.length; i++) {
+            float diff = embedding1[i] - embedding2[i];
+            sum += diff * diff;
+        }
+        return (float) Math.sqrt(sum);
+    }
+
+    private Bitmap convertImageProxyToBitmap(ImageProxy imageProxy) {
+        Image image = imageProxy.getImage();
+        // Convert image to bitmap (implementation depends on image format)
+        // You'll need to add specific conversion logic here
+    }
+
+    private float[] processImageForFaceNet(Bitmap bitmap) {
+        // Preprocess bitmap for FaceNet model
+        // Resize, normalize, convert to float tensor
+        // Return face embedding
+    }
+
+    private ByteBuffer loadModelFile(String modelPath) throws IOException {
+        AssetFileDescriptor fileDescriptor = getAssets().openFd(modelPath);
+        FileInputStream inputStream = new FileInputStream(fileDescriptor.getFileDescriptor());
+        FileChannel fileChannel = inputStream.getChannel();
+        long startOffset = fileDescriptor.getStartOffset();
+        long declaredLength = fileDescriptor.getDeclaredLength();
+
+        ByteBuffer modelBuffer = ByteBuffer.allocateDirect((int) fileChannel.size());
+        modelBuffer.order(ByteOrder.nativeOrder());
+        fileChannel.read(modelBuffer, startOffset);
+        return modelBuffer;
+    }
+
+    private class FaceModel {
+        String personName;
+        float[] embedding;
+
+        FaceModel(String personName, float[] embedding) {
+            this.personName = personName;
+            this.embedding = embedding;
+        }
+    }
+
+    @Nullable
+    @Override
+    public IBinder onBind(Intent intent) {
+        return null;
+    }
+
+    @Override
+    public void onDestroy() {
+        super.onDestroy();
+        if (cameraExecutor != null) {
+            cameraExecutor.shutdown();
+        }
+        if (faceNetModel != null) {
+            faceNetModel.close();
+        }
+    }
+}
+
+// AndroidManifest.xml
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.example.facerecognitionservice">
+
+    <uses-permission android:name="android.permission.CAMERA"/>
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+
+    <application
+        android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/AppTheme">
+
+        <service
+            android:name=".FaceRecognitionService"
+            android:foregroundServiceType="camera"/>
+
+        <activity android:name=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>
+
+// activity_main.xml
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:gravity="center">
+
+    <ToggleButton
+        android:id="@+id/serviceToggle"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:textOn="Service On"
+        android:textOff="Service Off"/>
+</LinearLayout>
