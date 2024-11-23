@@ -51,5 +51,135 @@ public class WrapContentViewPager extends ViewPager {
         }
         heightMeasureSpec = MeasureSpec.makeMeasureSpec(height, MeasureSpec.EXACTLY);
         super.onMeasure(widthMeasureSpec, heightMeasureSpec);
+    mm
+99
+
+
+public class ViewPager2HeightAdjuster {
+
+    public static void adjustViewPagerHeight(ViewPager2 viewPager2) {
+        View child = ((RecyclerView) viewPager2.getChildAt(0)).getLayoutManager().findViewByPosition(0);
+
+        if (child != null) {
+            child.measure(
+                    View.MeasureSpec.makeMeasureSpec(viewPager2.getWidth(), View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
+            );
+
+            int height = child.getMeasuredHeight();
+            if (height > 0) {
+                ViewGroup.LayoutParams layoutParams = viewPager2.getLayoutParams();
+                layoutParams.height = height;
+                viewPager2.setLayoutParams(layoutParams);
+            }
+        }
+    }
+} 
+
+
+package com.example.dynamicviewpager2;
+
+import android.os.Bundle;
+import android.widget.ScrollView;
+
+import androidx.appcompat.app.AppCompatActivity;
+import androidx.viewpager2.widget.ViewPager2;
+
+import java.util.ArrayList;
+import java.util.List;
+
+public class MainActivity extends AppCompatActivity {
+
+    private ScrollView scrollView;
+    private ViewPager2 viewPager2;
+    private CardPagerAdapter2 cardPagerAdapter;
+    private List<String> cardList;
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        setContentView(R.layout.activity_main);
+
+        scrollView = findViewById(R.id.scrollView);
+        viewPager2 = findViewById(R.id.viewPager);
+
+        // Initialize card list and adapter
+        cardList = new ArrayList<>();
+        cardPagerAdapter = new CardPagerAdapter2(cardList);
+        viewPager2.setAdapter(cardPagerAdapter);
+
+        // Adjust ViewPager2 height initially
+        viewPager2.post(() -> ViewPager2HeightAdjuster.adjustViewPagerHeight(viewPager2));
+
+        // Add a new card when the button is clicked
+        findViewById(R.id.addCardButton).setOnClickListener(v -> addNewCard("New Card"));
+    }
+
+    private void addNewCard(String cardText) {
+        // Add a new card to the list
+        cardList.add(cardText);
+
+        // Notify the adapter about the new data
+        cardPagerAdapter.notifyDataSetChanged();
+
+        // Adjust ViewPager2 height after content change
+        viewPager2.post(() -> ViewPager2HeightAdjuster.adjustViewPagerHeight(viewPager2));
+
+        // Ensure the ScrollView scrolls to the bottom
+        scrollView.post(() -> scrollView.fullScroll(ScrollView.FOCUS_DOWN));
     }
 }
+
+
+
+
+package com.example.dynamicviewpager2;
+
+import android.view.LayoutInflater;
+import android.view.View;
+import android.view.ViewGroup;
+import android.widget.TextView;
+
+import androidx.annotation.NonNull;
+import androidx.recyclerview.widget.RecyclerView;
+
+import java.util.List;
+
+public class CardPagerAdapter2 extends RecyclerView.Adapter<CardPagerAdapter2.ViewHolder> {
+
+    private List<String> cardList;
+
+    public CardPagerAdapter2(List<String> cardList) {
+        this.cardList = cardList;
+    }
+
+    @NonNull
+    @Override
+    public ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
+        View view = LayoutInflater.from(parent.getContext()).inflate(R.layout.card_item, parent, false);
+        return new ViewHolder(view);
+    }
+
+    @Override
+    public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
+        holder.cardText.setText(cardList.get(position));
+    }
+
+    @Override
+    public int getItemCount() {
+        return cardList.size();
+    }
+
+    static class ViewHolder extends RecyclerView.ViewHolder {
+        TextView cardText;
+
+        ViewHolder(@NonNull View itemView) {
+            super(itemView);
+            cardText = itemView.findViewById(R.id.cardText);
+        }
+    }
+}
+
+
+
+
